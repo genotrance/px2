@@ -64,7 +64,10 @@ proc buildHeaderList(r: HttpReqRespHeader): Pslist =
     temp: Pslist = nil
   for name, value in r.headers:
     # Need to null terminate
-    temp = slist_append(result, (name & ": " & value & " ").strip())
+    var
+      header = name & ": " & value
+    header.setLen(header.len+1)
+    temp = slist_append(result, header)
     doAssert not temp.isNil, "Nilled out"
     result = temp
 

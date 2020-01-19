@@ -19,4 +19,5 @@ proc isClosed*(socket: Socket): bool =
 
 proc getUri*(r: HttpRequestHeader): string =
   # Need to null terminate uri()
-  result = (r.uri() & " ").strip()
+  result = r.uri()
+  result.setLen(result.len+1)
