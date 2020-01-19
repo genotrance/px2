@@ -2,7 +2,7 @@ import nativesockets, net, selectors, sequtils, strutils
 
 import httputils, libcurl
 
-import server, utils
+import curlwrap, server, utils
 
 const
   PROXY = ""
