@@ -2,6 +2,8 @@ import net, sequtils, strutils, threadpool
 
 import httputils
 
+import utils
+
 type
   HttpServer* = ref object
     socket: Socket
@@ -47,34 +49,38 @@ proc sendHeader*(
   client.sendBuffer(header.name & ": " & header.value & "\c\L")
 
 proc processClient(
-  server: HttpServer,
-  socket: Socket,
-  address: string,
+  csocket: Socket,
+  caddress: string,
   callback: proc (client: HttpClient) {.closure, gcsafe.}
 ) =
+  decho "processClient(): " & caddress
   var
     client = new(HttpClient)
     buffer = newStringOfCap(512)
-  client.socket = socket
-  client.address = address
+  client.socket = csocket
+  client.address = caddress
 
-  while true:
-    let line = socket.recvLine()
+  while not csocket.isClosed():
+    let line = csocket.recvLine()
 
     if line.len == 0:
-      socket.close()
-      return
-
-    if line == "\r\L":
-      buffer &= line
+      csocket.close()
       break
-    buffer &= line & "\r\L"
-  if buffer.len != 0:
-    client.request = parseRequest(buffer.toSeq())
-    if client.request.success():
-      callback(client)
+
+    if line != "\r\L":
+      buffer &= line & "\r\L"
     else:
-      client.sendError(Http400)
+      buffer &= line
+
+      client.request = parseRequest(buffer.toSeq())
+      if client.request.success():
+        callback(client)
+      else:
+        client.sendError(Http400)
+
+      buffer = ""
+
+  decho "processClient() done"
 
 proc serve*(
   server: HttpServer,
@@ -92,10 +98,10 @@ proc serve*(
 
   while true:
     var
-      socket: Socket
-      address = ""
-    server.socket.acceptAddr(socket, address)
-    spawn processClient(server, socket, address, callback)
+      csocket: Socket
+      caddress = ""
+    server.socket.acceptAddr(csocket, caddress)
+    spawn processClient(csocket, caddress, callback)
 
 proc close*(server: HttpServer) =
   server.socket.close()
