@@ -1,7 +1,12 @@
 import nativesockets, net
 
+const
+  DEBUG* = 1
+  VERBOSE* = 1
+
 template decho*(args: string) =
-  echo $getThreadId() & ": " & args
+  if VERBOSE == 1:
+    echo $getThreadId() & ": " & args
 
 proc isClosed*(socket: Socket): bool =
   if socket.getFd() == osInvalidSocket:

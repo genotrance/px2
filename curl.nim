@@ -59,8 +59,13 @@ proc pipeCb(data: ptr char, size: cint, nmemb: cint, userData: pointer): cint =
 
 proc buildHeaderList(r: HttpReqRespHeader): Pslist =
   # Create a curl slist of headers for request
+  result = nil
+  var
+    temp: Pslist = nil
   for name, value in r.headers:
-    result = slist_append(result, (name & ": " & value).cstring)
+    temp = slist_append(result, (name & ": " & value).cstring)
+    doAssert not temp.isNil, "Nilled out"
+    result = temp
 
 # Debug output
 
@@ -82,7 +87,6 @@ proc curlGet*(client: HttpClient) =
   # Handle all non-CONNECT requests
   var
     c = easy_init()
-
   decho "curlGet()"
   printRequest(client)
 
@@ -94,6 +98,8 @@ proc curlGet*(client: HttpClient) =
   checkCurl c.easy_setopt(OPT_NOPROGRESS, true);
   if PROXY.len != 0:
     checkCurl c.easy_setopt(OPT_PROXY, PROXY)
+  if DEBUG == 1:
+    checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
   # Callbacks will handle communication of response back to client
   checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCb)
@@ -150,6 +156,8 @@ proc curlConnect*(client: HttpClient) =
   if PROXY.len == 0:
     client.sendBuffer("HTTP/1.1 200 Connection established\c\L")
     client.sendBuffer("Proxy-Agent: px2\c\L\c\L")
+  if DEBUG == 1:
+    checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
   # Get curl socket to bridge client <-> upstream
   checkCurl c.easy_getinfo(INFO_ACTIVESOCKET, addr ssocketH)
