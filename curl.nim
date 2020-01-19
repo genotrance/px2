@@ -5,7 +5,7 @@ import httputils, libcurl
 import server, utils
 
 const
-  PROXY = "" # "localhost:8888"
+  PROXY = ""
   INFO_ACTIVESOCKET = (0x500000 + 44).INFO
 
 proc checkCurl(code: Code) =
@@ -26,7 +26,7 @@ proc filterHeaders(headers: string, filter: seq[string]): string =
     else:
       result &= lines[i] & "\c\L"
 
-proc headerCb(data: ptr char, size: cint, nmemb: cint, userData: pointer): cint =
+proc headerCb(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
   # Callback that collects response headers and forwards back to client when
   # all have arrived
   var
@@ -42,13 +42,15 @@ proc headerCb(data: ptr char, size: cint, nmemb: cint, userData: pointer): cint 
     client.headers = filterHeaders(client.headers, @["transfer-encoding"])
     client.response = parseResponse(client.headers.toSeq())
     if client.response.success():
-      client.sendBuffer(client.headers)
+      if client.response.code != 407:
+        # Skip sending entire header if part of upstream proxy authentication
+        client.sendBuffer(client.headers)
     else:
       client.sendError(Http400)
       result = 0
     client.headers = ""
 
-proc pipeCb(data: ptr char, size: cint, nmemb: cint, userData: pointer): cint =
+proc pipeCb(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
   # Pipe response body back to client - only for non-CONNECT requests
   var
     client = cast[HttpClient](userData)
@@ -102,6 +104,8 @@ proc curlGet*(client: HttpClient) =
   checkCurl c.easy_setopt(OPT_NOPROGRESS, true);
   if PROXY.len != 0:
     checkCurl c.easy_setopt(OPT_PROXY, PROXY)
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_NTLM)
+    checkCurl c.easy_setopt(OPT_PROXYUSERPWD, ":")
   if DEBUG == 1:
     checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
@@ -145,6 +149,8 @@ proc curlConnect*(client: HttpClient) =
   if PROXY.len != 0:
     checkCurl c.easy_setopt(OPT_PROXY, PROXY)
     checkCurl c.easy_setopt(OPT_HTTPPROXYTUNNEL, 1)
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_NTLM)
+    checkCurl c.easy_setopt(OPT_PROXYUSERPWD, ":")
   # Connect only so that we can use socket for communication
   checkCurl c.easy_setopt(OPT_CONNECT_ONLY, 1)
 
