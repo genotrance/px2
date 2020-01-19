@@ -63,7 +63,8 @@ proc buildHeaderList(r: HttpReqRespHeader): Pslist =
   var
     temp: Pslist = nil
   for name, value in r.headers:
-    temp = slist_append(result, (name & ": " & value).cstring)
+    # Need to null terminate
+    temp = slist_append(result, (name & ": " & value & " ").strip())
     doAssert not temp.isNil, "Nilled out"
     result = temp
 
@@ -90,7 +91,7 @@ proc curlGet*(client: HttpClient) =
   decho "curlGet()"
   printRequest(client)
 
-  checkCurl c.easy_setopt(OPT_URL, client.request.uri())
+  checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
     headers = buildHeaderList(client.request)
   checkCurl c.easy_setopt(OPT_HTTPHEADER, headers)
@@ -133,7 +134,7 @@ proc curlConnect*(client: HttpClient) =
   decho "curlConnect()"
   printRequest(client)
 
-  checkCurl c.easy_setopt(OPT_URL, client.request.uri())
+  checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
     headers = buildHeaderList(client.request)
   checkCurl c.easy_setopt(OPT_HTTPHEADER, headers)

@@ -1,4 +1,6 @@
-import nativesockets, net
+import nativesockets, net, strutils
+
+import httputils
 
 const
   DEBUG* = 1
@@ -14,3 +16,7 @@ template decho*(args: string) =
 proc isClosed*(socket: Socket): bool =
   if socket.getFd() == osInvalidSocket:
     return true
+
+proc getUri*(r: HttpRequestHeader): string =
+  # Need to null terminate uri()
+  result = (r.uri() & " ").strip()
