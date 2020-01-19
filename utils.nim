@@ -6,7 +6,10 @@ const
 
 template decho*(args: string) =
   if VERBOSE == 1:
-    echo $getThreadId() & ": " & args
+    when compileOption("threads"):
+      echo $getThreadId() & ": " & args
+    else:
+      echo args
 
 proc isClosed*(socket: Socket): bool =
   if socket.getFd() == osInvalidSocket:

@@ -1,4 +1,7 @@
-import net, sequtils, strutils, threadpool
+import net, sequtils, strutils
+
+when compileOption("threads"):
+  import threadpool
 
 import httputils
 
@@ -101,7 +104,10 @@ proc serve*(
       csocket: Socket
       caddress = ""
     server.socket.acceptAddr(csocket, caddress)
-    spawn processClient(csocket, caddress, callback)
+    when compileOption("threads"):
+      spawn processClient(csocket, caddress, callback)
+    else:
+      processClient(csocket, caddress, callback)
 
 proc close*(server: HttpServer) =
   server.socket.close()
