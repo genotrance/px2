@@ -1,11 +1,13 @@
 import net
 
-import curl, server
+import curl, server, utils
 
-proc startServer() =
-  var server = newHttpServer()
-
-  server.serve(Port(8080), curlCb)
+when defined(asyncMode):
+  import asyncdispatch
 
 when isMainModule:
-  startServer()
+  setControlCHook(chandler)
+  let
+    svr = newHttpServer()
+  waitFor svr.serve(Port(8080), curlCallback)
+  svr.close()

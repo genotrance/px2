@@ -1,4 +1,4 @@
-import net, sequtils, strutils
+import sequtils, strutils
 
 when compileOption("threads"):
   import threadpool
@@ -9,16 +9,25 @@ import utils
 
 type
   HttpServer* = ref object
-    socket: Socket
+    socket: PxSocket
     reuseAddr: bool
     reusePort: bool
 
   HttpClient* = ref object
-    socket*: Socket
+    socket*: PxSocket
     address*: string
     request*: HttpRequestHeader
     headers*: string
     response*: HttpResponseHeader
+
+when defined(asyncMode):
+  import asyncdispatch, asyncnet
+
+  type Callback* = proc(client: HttpClient): Future[void] {.closure, gcsafe.}
+else:
+  import net
+
+  type Callback* = proc(client: HttpClient) {.closure, gcsafe.}
 
 proc newHttpServer*(reuseAddr = true, reusePort = false): HttpServer =
   new result
@@ -28,34 +37,34 @@ proc newHttpServer*(reuseAddr = true, reusePort = false): HttpServer =
 proc getHttpCode*(code: int): HttpCode =
   result = parseEnum[HttpCode]("Http" & $code)
 
-proc sendResponse*(client: HttpClient, code: HttpCode) =
-  client.socket.send("HTTP/1.1 " & $code & "\c\L")
+proc sendResponse*(client: HttpClient, code: HttpCode) {.async.} =
+  await client.socket.send("HTTP/1.1 " & $code & "\c\L")
 
-proc sendError*(client: HttpClient, code: HttpCode) =
-  client.socket.send("HTTP/1.1 " & $code & "\c\L" &
-                          "Content-Length: " & $(($code).len + 2) & "\c\L\c\L" &
-                          $code & "\c\L")
+proc sendError*(client: HttpClient, code: HttpCode) {.async.} =
+  await client.socket.send("HTTP/1.1 " & $code & "\c\L" &
+                           "Content-Length: " & $(($code).len + 2) & "\c\L\c\L" &
+                           $code & "\c\L")
 
-proc sendBuffer*(client: HttpClient, buffer: string) =
-  client.socket.send(buffer)
+proc sendBuffer*(client: HttpClient, buffer: string) {.async.} =
+  await client.socket.send(buffer)
 
 proc sendHeader*(
   client: HttpClient,
   name, value: string
-) =
-  client.sendBuffer(name & ": " & value & "\c\L")
+) {.async.} =
+  await client.sendBuffer(name & ": " & value & "\c\L")
 
 proc sendHeader*(
   client: HttpClient,
   header: tuple[name, value: string]
-) =
-  client.sendBuffer(header.name & ": " & header.value & "\c\L")
+) {.async.} =
+  await client.sendBuffer(header.name & ": " & header.value & "\c\L")
 
 proc processClient(
-  csocket: Socket,
+  csocket: PxSocket,
   caddress: string,
-  callback: proc (client: HttpClient) {.closure, gcsafe.}
-) =
+  callback: Callback
+) {.async.} =
   decho "processClient(): " & caddress
   var
     client = new(HttpClient)
@@ -64,7 +73,7 @@ proc processClient(
   client.address = caddress
 
   while not csocket.isClosed():
-    let line = csocket.recvLine()
+    let line = await csocket.recvLine()
 
     if line.len == 0:
       csocket.close()
@@ -77,9 +86,9 @@ proc processClient(
 
       client.request = parseRequest(buffer.toSeq())
       if client.request.success():
-        callback(client)
+        await callback(client)
       else:
-        client.sendError(Http400)
+        await client.sendError(Http400)
 
       buffer = ""
 
@@ -88,10 +97,10 @@ proc processClient(
 proc serve*(
   server: HttpServer,
   port: Port,
-  callback: proc (client: HttpClient) {.closure, gcsafe.},
+  callback: Callback,
   address = ""
-) =
-  server.socket = newSocket()
+) {.async.} =
+  server.socket = newPxSocket()
   if server.reuseAddr:
     server.socket.setSockOpt(OptReuseAddr, true)
   if server.reusePort:
@@ -101,15 +110,17 @@ proc serve*(
 
   while true:
     var
-      csocket: Socket
+      csocket: PxSocket
       caddress = ""
-    server.socket.acceptAddr(csocket, caddress)
-    when compileOption("threads"):
-      spawn processClient(csocket, caddress, callback)
+    when defined(asyncMode):
+      (caddress, csocket) = await server.socket.acceptAddr()
+      await processClient(csocket, caddress, callback)
     else:
-      processClient(csocket, caddress, callback)
+      server.socket.acceptAddr(csocket, caddress)
+      when compileOption("threads"):
+        spawn processClient(csocket, caddress, callback)
+      else:
+        processClient(csocket, caddress, callback)
 
 proc close*(server: HttpServer) =
   server.socket.close()
-
-

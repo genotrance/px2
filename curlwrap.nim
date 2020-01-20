@@ -24,3 +24,5 @@ getHeader(
 
 when defined(windows):
   {.passL: "-lws2_32 -lcrypt32".}
+elif defined(linux):
+  {.passL: linkLibs(@["ssl", "crypto", "ssh2"], false) & " -lz -lpthread".}

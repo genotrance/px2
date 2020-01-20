@@ -1,5 +1,8 @@
 import nativesockets, net, selectors, sequtils, strutils
 
+when defined(asyncMode):
+  import asyncnet, asyncdispatch
+
 import httputils, libcurl
 
 import curlwrap, server, utils
@@ -26,7 +29,7 @@ proc filterHeaders(headers: string, filter: seq[string]): string =
     else:
       result &= lines[i] & "\c\L"
 
-proc headerCb(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
+proc headerCallback(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
   # Callback that collects response headers and forwards back to client when
   # all have arrived
   var
@@ -44,19 +47,19 @@ proc headerCb(data: ptr char, size: int, nmemb: int, userData: pointer): int {.c
     if client.response.success():
       if client.response.code != 407:
         # Skip sending entire header if part of upstream proxy authentication
-        client.sendBuffer(client.headers)
+        waitFor client.sendBuffer(client.headers)
     else:
-      client.sendError(Http400)
+      waitFor client.sendError(Http400)
       result = 0
     client.headers = ""
 
-proc pipeCb(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
+proc writeCallback(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
   # Pipe response body back to client - only for non-CONNECT requests
   var
     client = cast[HttpClient](userData)
     buffer = newString(size * nmemb)
   copyMem(addr buffer[0], data, buffer.len)
-  client.sendBuffer(buffer)
+  waitFor client.sendBuffer(buffer)
   result = buffer.len.cint
 
 proc buildHeaderList(r: HttpReqRespHeader): Pslist =
@@ -89,7 +92,7 @@ proc printResponse(client: HttpClient) =
   decho "  " & $r.version & " " & $r.code
   printHeaders(r, "<=")
 
-proc curlGet*(client: HttpClient) =
+proc curlGet*(client: HttpClient) {.async.} =
   # Handle all non-CONNECT requests
   var
     c = easy_init()
@@ -110,9 +113,9 @@ proc curlGet*(client: HttpClient) =
     checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
   # Callbacks will handle communication of response back to client
-  checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCb)
+  checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCallback)
   checkCurl c.easy_setopt(OPT_HEADERDATA, client)
-  checkCurl c.easy_setopt(OPT_WRITEFUNCTION, pipeCb)
+  checkCurl c.easy_setopt(OPT_WRITEFUNCTION, writeCallback)
   checkCurl c.easy_setopt(OPT_WRITEDATA, client)
 
   checkCurl c.easy_perform()
@@ -129,7 +132,7 @@ proc curlGet*(client: HttpClient) =
 
   decho "curlGet() done"
 
-proc curlConnect*(client: HttpClient) =
+proc curlConnect*(client: HttpClient) {.async.} =
   # Handle all CONNECT requests
   var
     c = easy_init()
@@ -155,17 +158,18 @@ proc curlConnect*(client: HttpClient) =
   checkCurl c.easy_setopt(OPT_CONNECT_ONLY, 1)
 
   # Callback will only handle communication of headers back to client
-  checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCb)
+  checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCallback)
   checkCurl c.easy_setopt(OPT_HEADERDATA, client)
 
   checkCurl c.easy_perform()
 
-  printResponse(client)
-
   # Send successful connect if no upstream proxy
   if PROXY.len == 0:
-    client.sendBuffer("HTTP/1.1 200 Connection established\c\L")
-    client.sendBuffer("Proxy-Agent: px2\c\L\c\L")
+    await client.sendBuffer("HTTP/1.1 200 Connection established\c\L" &
+                            "Proxy-Agent: px2\c\L\c\L")
+    decho "  Tunnel established"
+  else:
+    printResponse(client)
   if DEBUG == 1:
     checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
@@ -200,6 +204,7 @@ proc curlConnect*(client: HttpClient) =
           if rk.fd == ssocketH.int:
             data = socket.recv(4096)
             if data.len != 0:
+              ddecho "    " & $data.len & " <= server"
               cl += data.len
               cdata.add data
             else:
@@ -209,8 +214,9 @@ proc curlConnect*(client: HttpClient) =
               sdata = @[]
               done = true
           elif rk.fd == csocketH.int:
-            data = client.socket.recv(4096)
+            data = await client.socket.recv(4096)
             if data.len != 0:
+              ddecho "    " & $data.len & " <= client"
               cl += data.len
               sdata.add data
             else:
@@ -226,10 +232,12 @@ proc curlConnect*(client: HttpClient) =
           if rk.fd == ssocketH.int:
             if sdata.len != 0:
               socket.send(sdata[0])
+              ddecho "    " & $sdata[0].len & " => server"
               sdata.delete(0)
           elif rk.fd == csocketH.int:
             if cdata.len != 0:
-              client.socket.send(cdata[0])
+              await client.socket.send(cdata[0])
+              ddecho "    " & $cdata[0].len & " => client"
               cdata.delete(0)
   else:
     decho "Connection closed by proxy prematurely"
@@ -239,9 +247,9 @@ proc curlConnect*(client: HttpClient) =
 
   decho "curlConnect(): done " & $cl
 
-proc curlCb*(client: HttpClient) =
+proc curlCallback*(client: HttpClient) {.async.} =
   # Main callback to handle requests
   if client.request.meth == MethodConnect:
-    curlConnect(client)
+    await curlConnect(client)
   else:
-    curlGet(client)
+    await curlGet(client)
