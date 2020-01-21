@@ -13,14 +13,16 @@ else:
 
   type PxSocket* = Socket
 
-  template newPxSocket*(): PxSocket = newSocket(buffered = false)
+  template newPxSocket*(): PxSocket = newSocket()
 
   macro async*(code: untyped): untyped = code
+  macro asyncCheck*(code: untyped): untyped = code
   macro await*(code: untyped): untyped = code
+  macro mget*(code: untyped): untyped = code
   macro waitFor*(code: untyped) = code
 
 const
-  DEBUG* = 1
+  DEBUG* = 0
   VERBOSE* = 1
 
 template decho*(args: string) =
@@ -33,6 +35,16 @@ template decho*(args: string) =
 template ddecho*(args: string) =
   when DEBUG == 1:
     decho(args)
+
+template dddecho*(args: string) =
+  when DEBUG == 1:
+    stdout.write(" " & args)
+
+var
+  counter = 0
+template ddd*() =
+  counter += 1
+  dddecho($counter)
 
 proc isClosed*(socket: Socket): bool =
   if socket.getFd() == osInvalidSocket:

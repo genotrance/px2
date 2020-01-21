@@ -33,7 +33,7 @@ proc headerCallback(data: ptr char, size: int, nmemb: int, userData: pointer): i
   # Callback that collects response headers and forwards back to client when
   # all have arrived
   var
-    client = cast[HttpClient](userData)
+    clt = cast[Client](userData)
     hdrData = newString(size * nmemb)
   copyMem(addr hdrData[0], data, hdrData.len)
   client.headers &= hdrData
@@ -47,19 +47,19 @@ proc headerCallback(data: ptr char, size: int, nmemb: int, userData: pointer): i
     if client.response.success():
       if client.response.code != 407:
         # Skip sending entire header if part of upstream proxy authentication
-        waitFor client.sendBuffer(client.headers)
+        waitFor clt.sendBuffer(client.headers)
     else:
-      waitFor client.sendError(Http400)
+      waitFor clt.sendError(Http400)
       result = 0
     client.headers = ""
 
 proc writeCallback(data: ptr char, size: int, nmemb: int, userData: pointer): int {.cdecl.} =
   # Pipe response body back to client - only for non-CONNECT requests
   var
-    client = cast[HttpClient](userData)
+    clt = cast[Client](userData)
     buffer = newString(size * nmemb)
   copyMem(addr buffer[0], data, buffer.len)
-  waitFor client.sendBuffer(buffer)
+  waitFor clt.sendBuffer(buffer)
   result = buffer.len.cint
 
 proc buildHeaderList(r: HttpReqRespHeader): Pslist =
@@ -82,22 +82,22 @@ proc printHeaders(r: HttpReqRespHeader, prefix: string) =
   for name, value in r.headers:
     decho "  " & prefix & " " & name & " = " & value
 
-proc printRequest(client: HttpClient) =
+proc printRequest(clt: Client) =
   let r = client.request
   decho "  " & $r.meth & " " & r.uri() & " " & $r.version
   printHeaders(r, "=>")
 
-proc printResponse(client: HttpClient) =
+proc printResponse(clt: Client) =
   let r = client.response
   decho "  " & $r.version & " " & $r.code
   printHeaders(r, "<=")
 
-proc curlGet*(client: HttpClient) {.async.} =
+proc curlGet*(clt: Client) {.async.} =
   # Handle all non-CONNECT requests
   var
     c = easy_init()
   decho "curlGet()"
-  printRequest(client)
+  printRequest(clt)
 
   checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
@@ -123,7 +123,7 @@ proc curlGet*(client: HttpClient) {.async.} =
   slist_free_all(headers)
   c.easy_cleanup()
 
-  printResponse(client)
+  printResponse(clt)
 
   # Close client socket if there's no content-length info
   let cl = client.response["content-length"]
@@ -132,7 +132,7 @@ proc curlGet*(client: HttpClient) {.async.} =
 
   decho "curlGet() done"
 
-proc curlConnect*(client: HttpClient) {.async.} =
+proc curlConnect*(clt: Client) {.async.} =
   # Handle all CONNECT requests
   var
     c = easy_init()
@@ -142,7 +142,7 @@ proc curlConnect*(client: HttpClient) {.async.} =
     cl = 0
 
   decho "curlConnect()"
-  printRequest(client)
+  printRequest(clt)
 
   checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
@@ -165,11 +165,11 @@ proc curlConnect*(client: HttpClient) {.async.} =
 
   # Send successful connect if no upstream proxy
   if PROXY.len == 0:
-    await client.sendBuffer("HTTP/1.1 200 Connection established\c\L" &
+    await clt.sendBuffer("HTTP/1.1 200 Connection established\c\L" &
                             "Proxy-Agent: px2\c\L\c\L")
     decho "  Tunnel established"
   else:
-    printResponse(client)
+    printResponse(clt)
   if DEBUG == 1:
     checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
@@ -192,6 +192,9 @@ proc curlConnect*(client: HttpClient) {.async.} =
       data = ""
       done = false
     while true:
+      when defined(asyncMode):
+        await sleepAsync(0)
+
       var
         rks = select(selector, 100)
       if rks.len == 0 or (done and sdata.len == 0 and cdata.len == 0):
@@ -247,9 +250,9 @@ proc curlConnect*(client: HttpClient) {.async.} =
 
   decho "curlConnect(): done " & $cl
 
-proc curlCallback*(client: HttpClient) {.async.} =
+proc curlCallback*(clt: Client) {.async.} =
   # Main callback to handle requests
   if client.request.meth == MethodConnect:
-    await curlConnect(client)
+    await curlConnect(clt)
   else:
-    await curlGet(client)
+    await curlGet(clt)

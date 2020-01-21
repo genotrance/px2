@@ -23,11 +23,19 @@ type
 when defined(asyncMode):
   import asyncdispatch, asyncnet
 
-  type Callback* = proc(client: HttpClient): Future[void] {.closure, gcsafe.}
+  type
+    Callback* = proc(clt: Client): Future[void] {.closure, gcsafe.}
+    Client* = FutureVar[HttpClient]
+
+  template client*(): HttpClient = clt.mget()
 else:
   import net
 
-  type Callback* = proc(client: HttpClient) {.closure, gcsafe.}
+  type
+    Callback* = proc(clt: Client) {.closure, gcsafe.}
+    Client* = HttpClient
+
+  template client*(): HttpClient = clt
 
 proc newHttpServer*(reuseAddr = true, reusePort = false): HttpServer =
   new result
@@ -37,28 +45,28 @@ proc newHttpServer*(reuseAddr = true, reusePort = false): HttpServer =
 proc getHttpCode*(code: int): HttpCode =
   result = parseEnum[HttpCode]("Http" & $code)
 
-proc sendResponse*(client: HttpClient, code: HttpCode) {.async.} =
+proc sendResponse*(clt: Client, code: HttpCode) {.async.} =
   await client.socket.send("HTTP/1.1 " & $code & "\c\L")
 
-proc sendError*(client: HttpClient, code: HttpCode) {.async.} =
+proc sendError*(clt: Client, code: HttpCode) {.async.} =
   await client.socket.send("HTTP/1.1 " & $code & "\c\L" &
                            "Content-Length: " & $(($code).len + 2) & "\c\L\c\L" &
                            $code & "\c\L")
 
-proc sendBuffer*(client: HttpClient, buffer: string) {.async.} =
+proc sendBuffer*(clt: Client, buffer: string) {.async.} =
   await client.socket.send(buffer)
 
 proc sendHeader*(
-  client: HttpClient,
+  clt: Client,
   name, value: string
 ) {.async.} =
-  await client.sendBuffer(name & ": " & value & "\c\L")
+  await clt.sendBuffer(name & ": " & value & "\c\L")
 
 proc sendHeader*(
-  client: HttpClient,
+  clt: Client,
   header: tuple[name, value: string]
 ) {.async.} =
-  await client.sendBuffer(header.name & ": " & header.value & "\c\L")
+  await clt.sendBuffer(header.name & ": " & header.value & "\c\L")
 
 proc processClient(
   csocket: PxSocket,
@@ -66,11 +74,18 @@ proc processClient(
   callback: Callback
 ) {.async.} =
   decho "processClient(): " & caddress
-  var
-    client = new(HttpClient)
-    buffer = newStringOfCap(512)
+  when defined(asyncMode):
+    var
+      clt = newFutureVar[HttpClient]("server.processClient()")
+      buffer = newFutureVar[string]("server.processClient()")
+  else:
+    var
+      clt: HttpClient
+      buffer: string
+  client = new(HttpClient)
   client.socket = csocket
   client.address = caddress
+  buffer.mget() = newStringOfCap(512)
 
   while not csocket.isClosed():
     let line = await csocket.recvLine()
@@ -80,17 +95,17 @@ proc processClient(
       break
 
     if line != "\r\L":
-      buffer &= line & "\r\L"
+      buffer.mget() &= line & "\r\L"
     else:
-      buffer &= line
+      buffer.mget() &= line
 
-      client.request = parseRequest(buffer.toSeq())
+      client.request = parseRequest(buffer.mget().toSeq())
       if client.request.success():
-        await callback(client)
+        await callback(clt)
       else:
-        await client.sendError(Http400)
+        await clt.sendError(Http400)
 
-      buffer = ""
+      buffer.mget() = ""
 
   decho "processClient() done"
 
@@ -114,7 +129,7 @@ proc serve*(
       caddress = ""
     when defined(asyncMode):
       (caddress, csocket) = await server.socket.acceptAddr()
-      await processClient(csocket, caddress, callback)
+      asyncCheck processClient(csocket, caddress, callback)
     else:
       server.socket.acceptAddr(csocket, caddress)
       when compileOption("threads"):
