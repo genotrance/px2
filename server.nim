@@ -1,11 +1,11 @@
-import sequtils, strutils
+import os, sequtils, strutils
 
 when compileOption("threads"):
   import threadpool
 
-import httputils
+import httputils, libcurl
 
-import utils
+import parsecfg, utils
 
 type
   HttpServer* = ref object
@@ -19,6 +19,7 @@ type
     request*: HttpRequestHeader
     headers*: string
     response*: HttpResponseHeader
+    gconfig*: ptr GlobalConfig
 
 when defined(asyncMode):
   import asyncdispatch, asyncnet
@@ -71,7 +72,8 @@ proc sendHeader*(
 proc processClient(
   csocket: PxSocket,
   caddress: string,
-  callback: Callback
+  callback: Callback,
+  gconfig: ptr GlobalConfig
 ) {.async.} =
   decho "processClient(): " & caddress
   when defined(asyncMode):
@@ -85,6 +87,7 @@ proc processClient(
   client = new(HttpClient)
   client.socket = csocket
   client.address = caddress
+  client.gconfig = gconfig
   buffer.mget() = newStringOfCap(512)
 
   while not csocket.isClosed():
@@ -123,19 +126,21 @@ proc serve*(
   server.socket.bindAddr(port, address)
   server.socket.listen()
 
+  initConfig()
+
   while true:
     var
       csocket: PxSocket
       caddress = ""
     when defined(asyncMode):
       (caddress, csocket) = await server.socket.acceptAddr()
-      asyncCheck processClient(csocket, caddress, callback)
+      asyncCheck processClient(csocket, caddress, callback, addr gconfig)
     else:
       server.socket.acceptAddr(csocket, caddress)
       when compileOption("threads"):
-        spawn processClient(csocket, caddress, callback)
+        spawn processClient(csocket, caddress, callback, addr gconfig)
       else:
-        processClient(csocket, caddress, callback)
+        processClient(csocket, caddress, callback, addr gconfig)
 
 proc close*(server: HttpServer) =
   server.socket.close()

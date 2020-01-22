@@ -5,11 +5,21 @@ when defined(asyncMode):
 
 import httputils, libcurl
 
-import curlwrap, server, utils
+import curlwrap, server, parsecfg, utils
 
 const
-  PROXY = ""
+  BUFFER_SIZE = 100 * 1024
+
+  # Values not yet in libcurl wrapper
   INFO_ACTIVESOCKET = (0x500000 + 44).INFO
+
+  OPTTYPE_LONG = 0
+  OPTTYPE_OBJECTPOINT = 10000
+  OPTTYPE_STRINGPOINT = OPTTYPE_OBJECTPOINT
+
+  OPT_NOPROXY = (OPTTYPE_OBJECTPOINT + 177).Option
+  OPT_TCP_FASTOPEN = (OPTTYPE_LONG + 244).Option
+  OPT_PRE_PROXY = (OPTTYPE_STRINGPOINT + 262).Option
 
 proc checkCurl(code: Code) =
   if code != E_OK:
@@ -92,6 +102,49 @@ proc printResponse(clt: Client) =
   decho "  " & $r.version & " " & $r.code
   printHeaders(r, "<=")
 
+proc curlSetup*(clt: Client, c: PCurl) {.async.} =
+  # Setup libcurl based on configuration
+  let
+    cfg = client.gconfig.first
+
+  if not cfg.tcp_nodelay:
+    checkCurl c.easy_setopt(OPT_TCP_NODELAY, 0)
+
+  if cfg.tcp_fastopen:
+    checkCurl c.easy_setopt(OPT_TCP_FASTOPEN, 1)
+
+  if cfg.recvpersecond != 0 and cfg.recvpersecond < BUFFER_SIZE:
+    checkCurl c.easy_setopt(OPT_BUFFER_SIZE, cfg.recvpersecond)
+  else:
+    checkCurl c.easy_setopt(OPT_BUFFER_SIZE, BUFFER_SIZE)
+
+  if cfg.proxy.len != 0:
+    checkCurl c.easy_setopt(OPT_PROXY, cfg.proxy)
+    checkCurl c.easy_setopt(OPT_PROXYTYPE, cfg.proxyver)
+
+  checkCurl c.easy_setopt(OPT_PROXYUSERPWD, cfg.proxyuserpwd)
+
+  if cfg.preproxy.len != 0:
+    checkCurl c.easy_setopt(OPT_PRE_PROXY, cfg.preproxy)
+
+  if cfg.proxyanyauth:
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_ANY)
+  elif cfg.proxynegotiate:
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_GSSNEGOTIATE)
+  elif cfg.proxyntlm:
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_NTLM)
+  elif cfg.proxydigest:
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_DIGEST)
+  elif cfg.proxybasic:
+    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_BASIC)
+
+  checkCurl c.easy_setopt(OPT_NOPROXY, cfg.noproxy)
+
+  if verboseMode:
+    checkCurl c.easy_setopt(OPT_VERBOSE, 1)
+
+  checkCurl c.easy_setopt(OPT_NOPROGRESS, true);
+
 proc curlGet*(clt: Client) {.async.} =
   # Handle all non-CONNECT requests
   var
@@ -99,18 +152,12 @@ proc curlGet*(clt: Client) {.async.} =
   decho "curlGet()"
   printRequest(clt)
 
+  await curlSetup(clt, c)
+
   checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
     headers = buildHeaderList(client.request)
   checkCurl c.easy_setopt(OPT_HTTPHEADER, headers)
-
-  checkCurl c.easy_setopt(OPT_NOPROGRESS, true);
-  if PROXY.len != 0:
-    checkCurl c.easy_setopt(OPT_PROXY, PROXY)
-    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_NTLM)
-    checkCurl c.easy_setopt(OPT_PROXYUSERPWD, ":")
-  if DEBUG == 1:
-    checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
   # Callbacks will handle communication of response back to client
   checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCallback)
@@ -144,16 +191,16 @@ proc curlConnect*(clt: Client) {.async.} =
   decho "curlConnect()"
   printRequest(clt)
 
+  await curlSetup(clt, c)
+
   checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
   let
     headers = buildHeaderList(client.request)
+    proxy = client.gconfig.first.proxy
   checkCurl c.easy_setopt(OPT_HTTPHEADER, headers)
   checkCurl c.easy_setopt(OPT_NOPROGRESS, true);
-  if PROXY.len != 0:
-    checkCurl c.easy_setopt(OPT_PROXY, PROXY)
+  if proxy.len != 0:
     checkCurl c.easy_setopt(OPT_HTTPPROXYTUNNEL, 1)
-    checkCurl c.easy_setopt(OPT_PROXYAUTH, AUTH_NTLM)
-    checkCurl c.easy_setopt(OPT_PROXYUSERPWD, ":")
   # Connect only so that we can use socket for communication
   checkCurl c.easy_setopt(OPT_CONNECT_ONLY, 1)
 
@@ -164,13 +211,13 @@ proc curlConnect*(clt: Client) {.async.} =
   checkCurl c.easy_perform()
 
   # Send successful connect if no upstream proxy
-  if PROXY.len == 0:
+  if proxy.len == 0:
     await clt.sendBuffer("HTTP/1.1 200 Connection established\c\L" &
                             "Proxy-Agent: px2\c\L\c\L")
     decho "  Tunnel established"
   else:
     printResponse(clt)
-  if DEBUG == 1:
+  if verboseMode:
     checkCurl c.easy_setopt(OPT_VERBOSE, 1)
 
   # Get curl socket to bridge client <-> upstream

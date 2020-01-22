@@ -21,23 +21,23 @@ else:
   macro mget*(code: untyped): untyped = code
   macro waitFor*(code: untyped) = code
 
-const
-  DEBUG* = 0
-  VERBOSE* = 1
+var
+  silentMode* = false
+  verboseMode* = false
 
 template decho*(args: string) =
-  when VERBOSE == 1:
+  if not silentMode:
     when compileOption("threads"):
       echo $getThreadId() & ": " & args
     else:
       echo args
 
 template ddecho*(args: string) =
-  when DEBUG == 1:
+  if verboseMode:
     decho(args)
 
 template dddecho*(args: string) =
-  when DEBUG == 1:
+  if verboseMode:
     stdout.write(" " & args)
 
 var
