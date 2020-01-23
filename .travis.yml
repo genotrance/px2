@@ -19,5 +19,5 @@ install:
   - source travis.sh
 
 script:
-  - nimble develop -y
+  - nimble install -d -y
   - nimble test
