@@ -50,11 +50,6 @@ proc isClosed*(socket: Socket): bool =
   if socket.getFd() == osInvalidSocket:
     return true
 
-proc getUri*(r: HttpRequestHeader): string =
-  # Need to null terminate uri()
-  result = r.uri()
-  result.setLen(result.len+1)
-
 proc chandler*() {.noconv.} =
   when compileOption("threads"):
     setupForeignThreadGc()

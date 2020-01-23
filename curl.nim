@@ -81,7 +81,6 @@ proc buildHeaderList(r: HttpReqRespHeader): Pslist =
     # Need to null terminate
     var
       header = name & ": " & value
-    header.setLen(header.len+1)
     temp = slist_append(result, header)
     doAssert not temp.isNil, "Nilled out"
     result = temp
@@ -154,16 +153,16 @@ proc curlGet*(clt: Client) {.async.} =
 
   await curlSetup(clt, c)
 
-  checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
+  checkCurl c.easy_setopt(OPT_URL, client.request.uri())
   let
     headers = buildHeaderList(client.request)
   checkCurl c.easy_setopt(OPT_HTTPHEADER, headers)
 
   # Callbacks will handle communication of response back to client
   checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCallback)
-  checkCurl c.easy_setopt(OPT_HEADERDATA, client)
+  checkCurl c.easy_setopt(OPT_HEADERDATA, clt)
   checkCurl c.easy_setopt(OPT_WRITEFUNCTION, writeCallback)
-  checkCurl c.easy_setopt(OPT_WRITEDATA, client)
+  checkCurl c.easy_setopt(OPT_WRITEDATA, clt)
 
   checkCurl c.easy_perform()
 
@@ -193,7 +192,7 @@ proc curlConnect*(clt: Client) {.async.} =
 
   await curlSetup(clt, c)
 
-  checkCurl c.easy_setopt(OPT_URL, client.request.getUri())
+  checkCurl c.easy_setopt(OPT_URL, client.request.uri())
   let
     headers = buildHeaderList(client.request)
     proxy = client.gconfig.first.proxy
@@ -206,7 +205,7 @@ proc curlConnect*(clt: Client) {.async.} =
 
   # Callback will only handle communication of headers back to client
   checkCurl c.easy_setopt(OPT_HEADERFUNCTION, headerCallback)
-  checkCurl c.easy_setopt(OPT_HEADERDATA, client)
+  checkCurl c.easy_setopt(OPT_HEADERDATA, clt)
 
   checkCurl c.easy_perform()
 
