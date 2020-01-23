@@ -1,9 +1,9 @@
-import os, sequtils, strutils
+import sequtils, strutils
 
 when compileOption("threads"):
   import threadpool
 
-import httputils, libcurl
+import httputils
 
 import parsecfg, utils
 
@@ -116,6 +116,7 @@ proc serve*(
   server: HttpServer,
   port: Port,
   callback: Callback,
+  gconfig: ptr GlobalConfig,
   address = ""
 ) {.async.} =
   server.socket = newPxSocket()
@@ -126,21 +127,19 @@ proc serve*(
   server.socket.bindAddr(port, address)
   server.socket.listen()
 
-  initConfig()
-
   while true:
     var
       csocket: PxSocket
       caddress = ""
     when defined(asyncMode):
       (caddress, csocket) = await server.socket.acceptAddr()
-      asyncCheck processClient(csocket, caddress, callback, addr gconfig)
+      asyncCheck processClient(csocket, caddress, callback, gconfig)
     else:
       server.socket.acceptAddr(csocket, caddress)
       when compileOption("threads"):
-        spawn processClient(csocket, caddress, callback, addr gconfig)
+        spawn processClient(csocket, caddress, callback, gconfig)
       else:
-        processClient(csocket, caddress, callback, addr gconfig)
+        processClient(csocket, caddress, callback, gconfig)
 
 proc close*(server: HttpServer) =
   server.socket.close()

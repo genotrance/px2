@@ -5,7 +5,7 @@ when defined(asyncMode):
 
 import httputils, libcurl
 
-import curlwrap, server, parsecfg, utils
+import server, parsecfg, utils
 
 const
   BUFFER_SIZE = 100 * 1024

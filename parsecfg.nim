@@ -4,8 +4,6 @@ import libcurl
 
 import nimterop/[build, cimport]
 
-import utils
-
 # Need baseDir and ensure libcurl is built before this module is loaded
 import curlwrap
 
@@ -26,6 +24,7 @@ const
   inc = baseDir / "include"
   cfgable = src / "tool_cfgable.h"
   curlh = inc / "curl" / "curl.h"
+  helpc = src / "tool_help.c"
 
 proc backup(file: string): bool =
   let
@@ -60,6 +59,11 @@ static:
       curlhDataOut &= "\n"
 
     curlh.writeFile(curlhDataOut)
+
+  # Update help message to refer to px2 instead of curl
+  if backup(helpc):
+    writeFile(helpc, readFile(helpc).replace("Usage: curl [options...] <url>",
+              "Usage: px2 [options...]"))
 
 cOverride:
   type
@@ -107,7 +111,8 @@ cCompile(src / "tool_parsecfg.c")
 # From src/tool_main.c:main_init()
 template initConfig*() {.dirty.} =
   var
-    gconfig: GlobalConfig
+    gconfigobj: GlobalConfig
+    gconfig = addr gconfigobj
     config: OperationConfig
 
   # Set errors to stderr
@@ -123,7 +128,7 @@ template initConfig*() {.dirty.} =
   gconfig.last = addr config
 
   config_init(gconfig.first)
-  gconfig.first.global = addr gconfig
+  gconfig.first.global = gconfig
 
   # Parse command line params
   var
@@ -137,7 +142,7 @@ template initConfig*() {.dirty.} =
       args[i+1] = params[i].cstring
 
     let
-      res = parse_args(addr gconfig, (plen+1).cint,
+      res = parse_args(gconfig, (plen+1).cint,
                         cast[ptr cstring](addr args))
 
     if res == PARAM_HELP_REQUESTED:
