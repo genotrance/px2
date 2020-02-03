@@ -1,25 +1,6 @@
-import nativesockets, net, os
+import asyncdispatch, nativesockets, net, os
 
 import httputils
-
-when defined(asyncMode):
-  import asyncdispatch, asyncnet
-
-  type PxSocket* = AsyncSocket
-
-  template newPxSocket*(): PxSocket = newAsyncSocket(buffered = false)
-else:
-  import net
-
-  type PxSocket* = Socket
-
-  template newPxSocket*(): PxSocket = newSocket()
-
-  macro async*(code: untyped): untyped = code
-  macro asyncCheck*(code: untyped): untyped = code
-  macro await*(code: untyped): untyped = code
-  macro mget*(code: untyped): untyped = code
-  macro waitFor*(code: untyped) = code
 
 var
   silentMode* = false

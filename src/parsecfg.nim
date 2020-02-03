@@ -78,7 +78,6 @@ cImport(src / "tool_parsecfg.h")
 
 # Import proc parse_args()
 static:
-  cDebug()
   cSkipSymbol(@["GlobalConfig", "OperationConfig", "getparameter"])
 cImport(src / "tool_getparam.h")
 proc parse_args*(gconfig: ptr GlobalConfig, argc: cint, argv: ptr cstring):

@@ -1,7 +1,4 @@
-import nativesockets, net, selectors, sequtils, strutils
-
-when defined(asyncMode):
-  import asyncnet, asyncdispatch
+import asyncnet, asyncdispatch, nativesockets, net, selectors, sequtils, strutils
 
 import httputils, libcurl
 
@@ -230,21 +227,31 @@ proc curlConnect*(clt: Client) {.async.} =
     csocketH.setBlocking(false)
 
     # Register both sockets for Read/Write - bidirectional
-    registerHandle(selector, ssocketH, {Event.Read, Event.Write}, 0.SocketHandle)
-    registerHandle(selector, csocketH, {Event.Read, Event.Write}, 0.SocketHandle)
+    try:
+      registerHandle(selector, ssocketH, {Event.Read, Event.Write}, 0.SocketHandle)
+      registerHandle(selector, csocketH, {Event.Read, Event.Write}, 0.SocketHandle)
+    except Exception as e:
+      decho "Failed registerHandle(): " & e.msg
+      client.socket.close()
+      socket.close()
+      return
 
     var
       sdata, cdata: seq[string]
       data = ""
       done = false
     while true:
-      when defined(asyncMode):
-        await sleepAsync(0)
+      await sleepAsync(0)
 
       var
         rks = select(selector, 100)
       if rks.len == 0 or (done and sdata.len == 0 and cdata.len == 0):
         # Close if nothing to do
+        if ssocketH in selector:
+          unregister(selector, ssocketH)
+        socket.close()
+        if csocketH in selector:
+          unregister(selector, csocketH)
         client.socket.close()
         break
       for rk in rks:
@@ -258,9 +265,9 @@ proc curlConnect*(clt: Client) {.async.} =
                 cl += data.len
                 cdata.add data
               else:
-                decho "Connection closed by proxy"
+                decho "Connection closed by remote"
                 unregister(selector, ssocketH)
-                ssocketH.close()
+                socket.close()
                 sdata = @[]
                 done = true
               if data.len < BUFFER_SIZE:
@@ -295,7 +302,7 @@ proc curlConnect*(clt: Client) {.async.} =
               ddecho "    " & $cdata[0].len & " => client"
               cdata.delete(0)
   else:
-    decho "Connection closed by proxy prematurely"
+    decho "Connection closed by remote prematurely"
 
   slist_free_all(headers)
   c.easy_cleanup()
