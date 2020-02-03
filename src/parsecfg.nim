@@ -104,6 +104,8 @@ cCompile(src / "tool_libinfo.c")
 cCompile(src / "tool_msgs.c")
 cCompile(src / "tool_paramhlp.c")
 cCompile(src / "tool_parsecfg.c")
+when defined(windows):
+  cCompile(src / "tool_binmode.c")
 
 # Create new GlobalConfig object
 #

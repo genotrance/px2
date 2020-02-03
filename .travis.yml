@@ -1,7 +1,7 @@
 os:
   - windows
   - linux
-  - osx
+#  - osx - disabled, need to figure out cmake OPENSSL
 
 language: c
 
