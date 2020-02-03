@@ -131,15 +131,19 @@ proc serve*(
     var
       csocket: PxSocket
       caddress = ""
-    when defined(asyncMode):
-      (caddress, csocket) = await server.socket.acceptAddr()
-      asyncCheck processClient(csocket, caddress, callback, gconfig)
-    else:
-      server.socket.acceptAddr(csocket, caddress)
-      when compileOption("threads"):
-        spawn processClient(csocket, caddress, callback, gconfig)
+    try:
+      when defined(asyncMode):
+        (caddress, csocket) = await server.socket.acceptAddr()
+        asyncCheck processClient(csocket, caddress, callback, gconfig)
       else:
-        processClient(csocket, caddress, callback, gconfig)
+        server.socket.acceptAddr(csocket, caddress)
+        when compileOption("threads"):
+          spawn processClient(csocket, caddress, callback, gconfig)
+        else:
+          processClient(csocket, caddress, callback, gconfig)
+    except Exception as e:
+      ddecho "Failed: " & e.msg
+      continue
 
 proc close*(server: HttpServer) =
   server.socket.close()

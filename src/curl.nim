@@ -8,7 +8,7 @@ import httputils, libcurl
 import server, parsecfg, utils
 
 const
-  BUFFER_SIZE = 100 * 1024
+  BUFFER_SIZE = 16 * 1024
 
   # Values not yet in libcurl wrapper
   INFO_ACTIVESOCKET = (0x500000 + 44).INFO
@@ -251,40 +251,46 @@ proc curlConnect*(clt: Client) {.async.} =
         # First read all data from both sockets
         if Event.Read in rk.events:
           if rk.fd == ssocketH.int:
-            data = socket.recv(4096)
-            if data.len != 0:
-              ddecho "    " & $data.len & " <= server"
-              cl += data.len
-              cdata.add data
-            else:
-              decho "Connection closed by proxy"
-              unregister(selector, ssocketH)
-              ssocketH.close()
-              sdata = @[]
-              done = true
+            while true:
+              data = socket.recv(BUFFER_SIZE)
+              if data.len != 0:
+                ddecho "    " & $data.len & " <= server"
+                cl += data.len
+                cdata.add data
+              else:
+                decho "Connection closed by proxy"
+                unregister(selector, ssocketH)
+                ssocketH.close()
+                sdata = @[]
+                done = true
+              if data.len < BUFFER_SIZE:
+                break
           elif rk.fd == csocketH.int:
-            data = await client.socket.recv(4096)
-            if data.len != 0:
-              ddecho "    " & $data.len & " <= client"
-              cl += data.len
-              sdata.add data
-            else:
-              decho "Connection closed by client"
-              unregister(selector, csocketH)
-              csocketH.close()
-              cdata = @[]
-              done = true
-
+            while true:
+              data = await client.socket.recv(BUFFER_SIZE)
+              if data.len != 0:
+                ddecho "    " & $data.len & " <= client"
+                cl += data.len
+                sdata.add data
+              else:
+                decho "Connection closed by client"
+                unregister(selector, csocketH)
+                csocketH.close()
+                cdata = @[]
+                done = true
+              if data.len < BUFFER_SIZE:
+                break
+  
       for rk in rks:
         # Write any pending data to target sockets
         if Event.Write in rk.events:
           if rk.fd == ssocketH.int:
-            if sdata.len != 0:
+            while sdata.len != 0:
               socket.send(sdata[0])
               ddecho "    " & $sdata[0].len & " => server"
               sdata.delete(0)
           elif rk.fd == csocketH.int:
-            if cdata.len != 0:
+            while cdata.len != 0:
               await client.socket.send(cdata[0])
               ddecho "    " & $cdata[0].len & " => client"
               cdata.delete(0)
