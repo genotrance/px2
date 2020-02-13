@@ -14,7 +14,3 @@ requires "nim >= 1.0.6"
 requires "httputils >= 0.2.0"
 requires "libcurl >= 1.0.0"
 requires "nimterop >= 0.4.4"
-
-task test, "Test px2":
-  exec "nim c src/px2"
-  exec "nim c --threads:on src/px2"
