@@ -13,4 +13,4 @@ requires "nim >= 1.0.6"
 
 requires "httputils >= 0.2.0"
 requires "libcurl >= 1.0.0"
-requires "nimterop >= 0.4.4"
+requires "nimterop >= 0.6.8"

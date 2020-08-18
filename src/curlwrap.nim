@@ -1,6 +1,6 @@
 import os
 
-import nimterop/build
+import nimterop/[build, cimport]
 
 const
   # Save curl sources in local dir, avoid common location since we make mods
@@ -29,6 +29,6 @@ getHeader(
 
 # Linker flags for libcurl dependencies
 when defined(windows):
-  {.passL: "-lws2_32 -lcrypt32".}
+  cPassL("-lws2_32 -lcrypt32")
 elif defined(linux):
-  {.passL: linkLibs(@["ssl", "crypto", "ssh2"], false) & " -lz -lpthread".}
+  cPassL(linkLibs(@["ssl", "crypto", "ssh2"], false) & " -lz -lpthread")

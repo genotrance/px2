@@ -70,27 +70,6 @@ cOverride:
     curl_off_t* = int
     trace* = int
 
-# Import parsecfg objects
-cImport(src / "tool_cfgable.h", flags = "-s")
-
-# Import proc parseconfig()
-cImport(src / "tool_parsecfg.h")
-
-# Import proc parse_args()
-static:
-  cSkipSymbol(@["GlobalConfig", "OperationConfig", "getparameter"])
-cImport(src / "tool_getparam.h")
-proc parse_args*(gconfig: ptr GlobalConfig, argc: cint, argv: ptr cstring):
-  ParameterError {.importc, cdecl.}
-
-# Import proc tool_help()
-cImport(src / "tool_help.h")
-
-# Import proc get_libcurl_info()
-var
-  curlinfo* {.importc, header: src / "tool_libinfo.h".}: PVersion_info_data
-#proc get_libcurl_info*(): Code {.importc.}
-
 # Compile in all parsecfg related curl code
 cCompile(src / "tool_cfgable.c")
 cCompile(src / "tool_filetime.c")
@@ -107,6 +86,22 @@ cCompile(src / "tool_parsecfg.c")
 when defined(windows):
   cCompile(src / "tool_binmode.c")
 
+# Import parsecfg objects, proc parseconfig(),
+#        proc parse_args(), proc tool_help()
+cImport(
+  @[src / "tool_cfgable.h", src / "tool_parsecfg.h",
+    src / "tool_getparam.h", src / "tool_help.h"],
+  flags = "-s -E_"
+)
+
+proc parse_args*(gconfig: ptr GlobalConfig, argc: cint, argv: ptr cstring):
+  ParameterError {.importc, cdecl.}
+
+# Import proc get_libcurl_info()
+var
+  curlinfo* {.importc, header: src / "tool_libinfo.h".}: PVersion_info_data
+#proc get_libcurl_info*(): Code {.importc.}
+
 # Create new GlobalConfig object
 #
 # From src/tool_main.c:main_init()
@@ -117,7 +112,7 @@ template initConfig*() {.dirty.} =
     config: OperationConfig
 
   # Set errors to stderr
-  gconfig.errors = cast[ptr File](stderr)
+  gconfig.errors = cast[File](stderr)
 
   # Global init
   doAssert global_init(GLOBAL_DEFAULT) == E_OK
